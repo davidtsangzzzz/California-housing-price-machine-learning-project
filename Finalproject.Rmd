@@ -1,0 +1,569 @@
+---
+title: "PSTAT 131 Final Project"
+author: "Yanming(David) Zeng"
+date: "2024-05-30"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '3'
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Introduction
+
+This section is for introducing the general public to what I'm going to do with this final project.
+
+### What does this final project trying to do
+
+Housing has always been a pressing issue that needs to be addressed, but it is even more important to choose a home that better suits your budget and mental expectations. This project will build a model based on the different sizes of houses and the number of bedrooms and the presence or absence of a swimming pool as factors affecting the price.
+
+### My goal for the project
+
+The goals encompass investigating and visualizing data to comprehend the correlation between price distributions and property characteristics; identifying significant determinants of home prices through characterisation; and creating regression models to forecast prices. Important details including prices, dates of sales, unique IDs, and comprehensive housing details are all included in the collection. We hope that this effort will help real estate agents, purchasers, and legislators make wise decisions by offering insightful information. A thorough grasp of the housing market is ensured by an integrated strategy that combines data exploration, feature analysis, predictive modeling.
+
+## Preparation
+
+### Package Loading
+
+At first we will load the data set first and the package
+
+```{r,message=FALSE}　 
+library(knitr)
+library(tidyverse)
+library(corrr) 
+library(ggplot2)
+library(tidymodels)
+library(knitr) 
+library(kableExtra)
+library(corrplot) 
+library(ggcorrplot) 
+library(visdat)
+library(vip)
+```
+
+### Loading Data Set
+
+After that I will load my data set. This data set is taken from [Kaggle](https://www.kaggle.com/datasets/sukhmandeepsinghbrar/housing-price-dataset/data)
+
+```{r}
+housing_data <- read.csv("~/Desktop/Pstat131final project/Housing.csv")
+knitr::kable(head(housing_data)) %>%
+  kableExtra::column_spec(1:21, border_left = TRUE, border_right = TRUE) %>%
+  kableExtra::kable_styling()
+```
+
+This data set is including different factors that possible affect the price. Here are the introduction for these data:
+
+\-**id**: Unique identifier for each property
+
+\-**data**: Date of property listing
+
+\-**price**: Property price in currency
+
+\-**bedrooms**: Number of bedrooms
+
+\-**bathrooms**: Number of bathrooms
+
+\-**sqft_living**: Living area size in square feet
+
+\-**sqft_lot**: Total lot size in square feet
+
+\-**floors**: Number of floors
+
+\-**waterfront**:Indicates if property has waterfront view (0 for no, 1 for yes)
+
+\-**view**: Quality level of property view (0 to 4)
+
+\-**condition**: Overall condition rating (1 to 5)
+
+\-**grade**: Overall grade rating (1 to 13)
+
+\-**sqft_above**: Living area above ground level in square feet
+
+\-**sqft_basement**:Basement area in square feet
+
+\-**yr_built**: Year property was built
+
+\-**yr_renovated**: Year property was last renovated (0 if never)
+
+\-**zipcode**: Property location zip code
+
+\-**lat**:Latitude coordinate of property location
+
+\-**long**: Longitude coordinate of property location
+
+\-**sqft_living15**: Living area size of 15 nearest properties in square feet
+
+\-**sqft_lot15**: Lot size of 15 nearest properties in square feet
+
+## Exploratory Data Analysis
+
+### Variable Selection
+
+```{r}
+dim(housing_data)
+```
+
+There is 21613 observations and 21 variables. Deducting the response variable, there is still 20 variables left as our predictors!
+
+However, There is some variables that I think we don't need the consider. At first is the **id** in my model, because I don't think my models need special markings. The modeling I do is designed to help the market better understand price trend factors.
+
+Second, Because my model is more about examining the influences on market price trends, for the vast majority of consumers, longitude（**long**) and latitude(**lat**) are not relevant as a factor influencing them to buy a house. So I think I'm justified in removing these two factors
+
+Third, the zipcode is too dummy as a factor, so I also need to remove this one as well.
+
+```{r}
+housing_data<-housing_data%>%
+  select(-id,-long,-lat, -zipcode)
+```
+
+Next we will tidy these large data set
+
+### Tidying data
+
+```{r}
+unique_values_count <- sapply(housing_data, function(x) length(unique(x)))
+kable(unique_values_count)%>%
+  kableExtra::column_spec(1:2, border_left = TRUE, border_right = TRUE) %>%
+  kableExtra::kable_styling()
+```
+
+From the chart above, we can know that these data are all we need for our next step. In the index of the year of renovation(**yr_renovated**), we don't need to know exactly what year it was renovated. We can convert it to whether it was renovated and use it as a factor. This way we can better model this prediction. Also, we can convert the built of the year to a new value called Age. This variable is made up of 2024 - the year it was built. This new variable is more useful to help us organize the dataset because we don't need to calculate how many years the house was built.
+
+```{r}
+housing_data <- housing_data %>%
+  mutate(
+    Age = 2024 - yr_built,
+    Renovated = if_else(yr_renovated > 0, 1, 0))%>%
+  select(-yr_renovated,-yr_built)
+
+head(housing_data)
+```
+
+The next important factor we need to consider is the date, because the date of release for sale is not an important factor in the price trend. so we omit this variable.
+
+```{r}
+housing_data<-housing_data%>%
+  select(-date)
+head(housing_data)
+write.csv(housing_data,"housing_data.csv")
+```
+
+Now, the data looks perfect and we can continue to our next step.
+
+### Convert data type
+At first, we need to know each type of data clearly
+```{r}
+housing<-read.csv("~/Desktop/Pstat131final project/housing_data.csv")%>%
+  select(-X)
+variable <- sapply(housing, class)
+variable%>%
+  kable()%>%
+  kableExtra::column_spec(1:2, border_left = TRUE, border_right = TRUE) %>%
+  kableExtra::kable_styling()
+```
+
+Now, we need to convert some data in to factor
+```{r}
+housing$floors<-as.factor(housing$waterfront)
+housing$waterfront<-as.factor(housing$waterfront)
+housing$view<-as.factor(housing$view)
+housing$condition<-as.factor(housing$condition)
+housing$grade<-as.factor(housing$grade)
+housing$Renovated<-as.factor(housing$Renovated)
+```
+
+Now We can see our new data set
+```{r}
+variable <- sapply(housing, class)
+variable%>%
+  kable()%>%
+  kableExtra::column_spec(1:2, border_left = TRUE, border_right = TRUE) %>%
+  kableExtra::kable_styling()
+```
+
+### Check Miss Data
+
+In this part, I will check if there any missing data in this data set.
+
+```{r}
+vis_miss(housing)
+```
+
+Obviously show that there is no missing housing data in it.
+
+### Data Visualization
+
+#### Distribution of Price
+
+If we want to make the reserach on price, we need to know the price's distribution
+
+```{r}
+ggplot(housing, aes(x = price)) +
+  geom_histogram(binwidth = 100000, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of House Prices", x = "Price", y = "Frequency") +
+  theme_minimal() +
+  scale_x_continuous(labels = scales::comma)
+```
+
+From this graph, we can know that the bulk of home values are concentrated around \$1 million, with the biggest concentration of properties in the lower price ranges. It means as prices have risen, the frequency of purchases has dropped dramatically, suggesting that there is more affordable housing on the market than luxury housing. After that, this shows that my research is closer to the general public and that it is more conducive to my market research.
+
+#### Correlation Heatmap of price and factors
+
+```{r}
+housing_numeric <- housing %>%
+  select_if(is.numeric)
+housing_numeric <- housing_numeric[, !names(housing_numeric) %in% c("column1_with_NA", "column2_with_NA")]
+housing_cor <- cor(housing_numeric, use = "complete.obs")
+corrplot(housing_cor, method = "circle", addCoef.col = "black", number.cex = 0.5, 
+         tl.cex =1, tl.col = "black", cl.cex = 0.5, col = colorRampPalette(c("blue", "white", "red"))(200))
+price_correlations <- housing_cor[, "price"]
+sorted_price_correlations <- sort(abs(price_correlations), decreasing = TRUE)
+print(sorted_price_correlations)
+
+
+```
+
+Obviously, Square living(0.702), Square above(0.605), and Square living in 15 nearest properties in square feet(0.605) have strong positive relation to the price. These are the good predictors for us to figure it out. For example,larger houses (sqft_living) tend to be more expensive, which makes intuitive sense because more living space typically costs more. In the real world, Understanding which variables have the most positive correlation with pricing might help real estate investors make more informed decisions.
+
+#### Relationship between the Square living and Price
+
+As we know the Square living has the biggest influence to the price. We can explore their relationship further for advance.
+
+```{r}
+housing %>% 
+  ggplot(aes(x=sqft_living, y=price)) + 
+  geom_jitter(width = 0.5, size = 1) +
+  geom_smooth(method = "lm", se =F, col="skyblue") +
+  labs(title = "Price vs. Square living")+
+  scale_y_continuous(labels = scales::comma)
+```
+
+This graphic clearly shows a strong positive link between living square footage and pricing. The larger the value of residential square footage (more than 4,000 square feet), the bigger the price variance. This implies that, while larger homes are normally more expensive, the price gap is greater in larger homes, which might be due to other factors such as location, amenities, or overall quality.
+
+## Set up a model
+
+I will set up the models for my next step in this part. I picked the Root Mean Square Error (RMSE) as a metric since it can be used to assess the overall performance of all models.RMSE is a popular statistic for evaluating regression model performance.
+
+### Split the data set
+
+At first we need to split the data set into training and testing. After that we need to create the 5-fold cross-validation to the training set.
+
+```{r}
+set.seed(2620)
+housing_split <- initial_split(housing, prop = 0.7, strata = price)
+housing_train <- training(housing_split)
+housing_test <- testing(housing_split)
+housing_folds <- vfold_cv(housing_train,v=5,strata = price)
+```
+
+However, we need to check if we used 70% of data for training
+```{r}
+nrow(housing_train)/nrow(housing)
+```
+
+It seems it is very close to 70%. So I think is good.
+
+
+### Create Recipes
+
+A recipe is required for future models since a single recipe may be utilized in several models without the need to create new ones.
+
+```{r}
+housing_recipe <- recipe(price~., data = housing_train)%>%
+  step_dummy(all_nominal_predictors(), -all_outcomes())%>%
+  step_nzv(all_predictors())%>%
+  step_center(all_predictors(), -all_outcomes()) %>%
+  step_scale(all_predictors(), -all_outcomes())
+```
+
+## Model Building
+
+This section covers formal model creation, which includes KNN, linear regression, elastic net linear regression, and random forest.
+
+```{r}
+lmmodel <- linear_reg() %>% 
+  set_engine("lm")
+  
+
+knnmodel <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("kknn")
+
+elasticsp <- linear_reg(penalty = tune(), 
+                           mixture = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+rfsp <- rand_forest(mtry = tune(), 
+                       trees = tune(), 
+                       min_n = tune()) %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+```
+
+### Create Work Flow
+
+```{r}
+lm_wokflow <- workflow() %>% 
+  add_model(lmmodel) %>% 
+  add_recipe(housing_recipe)
+
+knn_wokflow <- workflow() %>% 
+  add_model(knnmodel) %>% 
+  add_recipe(housing_recipe)
+
+elastic_wokflow <- workflow() %>% 
+  add_recipe(housing_recipe) %>% 
+  add_model(elasticsp)
+
+rf_wokflow <- workflow() %>% 
+  add_recipe(housing_recipe) %>% 
+  add_model(rfsp)
+```
+
+Next step, we need to tune our parameters
+
+### Tune Parameters
+
+```{r}
+kngrid1 <- grid_regular(neighbors(range = c(1,15)), levels = 5)
+
+elasticgri1 <- grid_regular(penalty(range = c(-5, 5)), mixture(range = c(0,1)), levels = 10)
+
+rf_grid <- grid_regular(mtry(range = c(1, 12)), trees(range = c(200,1000)), min_n(range = c(5,20)), levels = 5)
+```
+
+Then, tweak the model and provide the procedure, including k-fold cross validation folds.
+
+```{r,message=TRUE,eval=FALSE}
+knntune1 <- tune_grid(
+    knn_wokflow,
+    resamples = housing_folds,
+    grid = kngrid1
+)
+
+elastictune1 <- tune_grid(
+  elastic_wokflow,
+  resamples = housing_folds,
+  grid = elasticgri1
+)
+
+rftune1 <- tune_grid(
+  rf_wokflow,
+  resamples = housing_folds,
+  grid = rf_grid
+)
+```
+
+Finally, we can save our results for convenience.
+
+```{r,eval=FALSE}
+write_rds(knntune1, file = "knn.rds")
+
+write_rds(elastictune1, file = "elastic.rds")
+
+write_rds(rftune1, file = "randomforests.rds")
+```
+
+### Autoplot of the model
+
+At first, we need to load our models first. 
+
+#### KNN Model
+
+```{r}
+knn<-read_rds(file = "knn.rds")
+knntune1 <- knn
+elastic <- read_rds(file = "elastic.rds")
+elastictune1 <- elastic
+randomforest <- read_rds(file = "randomforests.rds")
+rftune1 <- randomforest
+```
+
+```{r}
+autoplot(knn,metric = 'rmse')+theme_minimal()
+```
+
+This figure shows the relationship between different numbers of Nearest Neighbors and RMSE (Root Mean Square Error).This graphic clearly shows that as the number of nearest neighbors rises, the RMSE value steadily falls. This suggests that increasing the number of nearest neighbors increases the model's prediction performance while decreasing prediction error. When the number of nearest neighbors reaches four, the fall in RMSE slows dramatically. This means that once there are a given number of nearest neighbors, adding more nearest neighbors has a limited effect on model performance improvement. The graphic shows that the drop in RMSE tends to level off when the number of nearest neighbors ranges between 8 and 12. As a result, the number of nearest neighbors in this interval is a preferable option since they provide limited performance advantage and increasing computational cost as the number of nearest neighbors increases.
+
+#### Elastic Net Model
+
+```{r}
+autoplot(elastic, metric = 'rmse')+theme_minimal()
+```
+
+This figure depicts the tuning performance of the elastic net model, exhibiting the influence of increasing degrees of regularization on the model's accuracy as assessed by the RMSE. In the lower range of regularization strengths (roughly less than 1e+03), the RMSE is stable and produces reasonably low and consistent errors for all Lasso penalty ratios. This shows that the model can fit the data better with lower regularization strengths. When the regularization intensity crosses a specific threshold (about 1e+03), the RMSE increases considerably. This shows that over-regularization results in an oversimplified model that misses crucial elements in the data, resulting in increased prediction errors. Different Lasso penalty proportions have no influence on the RMSE at low regularization intensities; however, at high regularization intensities, greater Lasso penalty proportions (around 1.0) result in higher RMSEs.This shows that Lasso penalties have a bigger simplifying effect on the model at higher regularization intensities, perhaps leading to model underfitting.
+
+##### Random Forest Model
+
+```{r}
+autoplot(randomforest, metric = 'rmse')+theme_minimal()
+```
+  This picture shows the influence of various Random Forest model parameter choices on the RMSE (Root Mean Square Error). This image depicts the influence of various Minimal Node Sizes, Randomly Selected Predictors, and Trees on model performance (RMSE). In all minimum node size settings, the RMSE decreases as the number of randomly selected predictor variables grows, showing that adding predictor variables enhances model performance. As the number of randomly selected predictor variables rises (from 2.5 to 12.5), the RMSE steadily drops, demonstrating that adding predictor variables enhances the model's predictive accuracy. This pattern is true across all minimum node size and number of tree settings, indicating that randomly picking more predictor variables improves model generalization. The effect of varying tree counts (200, 400, 600, 800, 1000) on RMSE is likewise fairly comparable. As the number of trees grows, the RMSE reduces somewhat, but not dramatically.
+  This implies that increasing the number of trees has a limited influence on model performance, and that increasing the number of trees within a specific range increases model stability while not considerably lowering the RMSE.
+  
+Next, we will try to figure it out which is the best performance model
+
+First we need to look at different models' RMSE
+
+#### RMSE
+
+
+```{r}
+lm_fit <- fit_resamples(lm_wokflow, resamples = housing_folds)
+collect_metrics(lm_fit)%>%
+  filter(.metric=="rmse")%>%
+  kable()%>%
+  column_spec (1:6,border_left = T, border_right = T) %>%
+  kable_styling()
+```
+
+```{r}
+collect_metrics(knntune1)%>%
+  filter(.metric=="rmse")%>%
+  arrange(mean)%>%
+  kable()%>%
+  column_spec (1:7,border_left = T, border_right = T) %>%
+  kable_styling()
+```
+```{r}
+collect_metrics(elastictune1)%>%
+  filter(.metric=="rmse")%>%
+  arrange(mean)%>%
+  head(5)%>%
+  kable()%>%
+  column_spec (1:7,border_left = T, border_right = T) %>%
+  kable_styling()
+```
+
+```{r}
+collect_metrics(rftune1)%>%
+  filter(.metric=="rmse")%>%
+  arrange(mean)%>%
+  head(5)%>%
+  kable()%>%
+  column_spec (1:9,border_left = T, border_right = T) %>%
+  kable_styling()
+```
+
+After we know the RMSE for each model, we can try to select the best model right now.
+
+#### Model Selection
+```{r}
+lm <- show_best(lm_fit,metric = 'rmse')
+lm%>%
+  kable()%>%
+    column_spec (1:5,border_left = T, border_right = T) %>%
+  kable_styling()
+
+```
+```{r}
+best_k <- select_best(knntune1,metric = 'rmse')
+
+knnrmse <- show_best(knntune1, n = 1,metric = 'rmse')
+
+knnrmse%>%
+  kable()%>%
+    column_spec (1:6,border_left = T, border_right = T) %>%
+  kable_styling()
+
+```
+
+
+```{r}
+best_e <- select_best(elastictune1,metric = 'rmse')
+
+elastic1 <- show_best(elastictune1, n = 1,metric = 'rmse')
+elastic1%>%
+  kable()%>%
+    column_spec (1:6,border_left = T, border_right = T) %>%
+  kable_styling()
+```
+```{r}
+bestrandomforest <- select_best(rftune1,metric='rmse')
+  
+
+randomforest_rmse <- show_best(rftune1, n = 1, metric='rmse')
+
+randomforest_rmse%>%
+  kable()%>%
+    column_spec (1:9,border_left = T, border_right = T) %>%
+  kable_styling()
+
+```
+
+Next step, we can make a graph to figure it out which is the best perfomance model.
+
+```{r}
+rmse_data <- data.frame(
+  Model = c("Linear Regression","Random Forest", "Elastic Net", "KNN"),
+  RMSE = c(lm$mean,randomforest_rmse$mean, elastic1$mean, knnrmse$mean)
+)
+rmse_data <- rmse_data %>%
+  arrange(desc(RMSE)) %>%
+  mutate(Model = factor(Model, levels = Model))
+
+ggplot(rmse_data, aes(x = Model, y = RMSE, fill = Model)) +
+  geom_bar(stat = "identity") + labs(title = "RMSE Comparison of Models",
+       x = "Model",
+       y = "RMSE") + theme_minimal()
+```
+
+From this graph, we can know that the **random forest* is the best model that we can see. The mean is about 195479. The elastic Net and Linear Regression is the worst.
+
+
+### Model Fitting
+```{r}
+randomforest_final_train <- finalize_workflow(rf_wokflow, bestrandomforest)
+randonforest_fit <- fit(randomforest_final_train, data = housing_train)
+randonforest_fit %>% 
+  extract_fit_parsnip() %>% 
+  vip() + theme_minimal()
+```
+Before we make the model, we think the square of living is the most importance predictor. After we finish all the steps, the result is not out of my mind. This means that the more square living footage you have, the more money you need to spend on your house. However, the second indicator surprised me, **sqft_living15**. It means that the price also correlates to the nearest 15 houses' square living footage.
+
+For the next step, I will talk about the realtionship between the predictor value and actual value.
+```{r}
+housing_tibble <- predict(randonforest_fit, new_data = housing_test%>%select(-price))
+housing_tibble <- bind_cols(housing_tibble, housing_test %>% select(price))
+
+
+housing_tibble %>%
+  ggplot(aes(x = .pred, y = price)) +
+  geom_point(alpha = 0.4) +
+  geom_abline(lty = 2) +
+  theme_grey() +
+  labs(title = "Predicted Values vs. Actual Values",
+       x = "Predicted Values",
+       y = "Actual Values")
+```
+
+  As seen in the graphic, the majority of the data points are distributed along the dotted line (grey dashed line) of y=x, implying that the projected values have a linear connection with the actual values. This indicates that the model performed well in capturing the general trend. In the low-value zone (when both anticipated and actual values are low, particularly between 0 and 1,000,000), the data points are more concentrated and close to the dashed line at y=x. This suggests that the model is better at predicting low-value data with fewer error. In the high value zone, data points are more spread out and stray from the dashed line at y=x. This suggests that the model has a higher error rate in predicting high-value data and may have a big prediction bias. Several data points deviate greatly from the dashed line, showing that the prediction error is unusually large. There are several major outliers, particularly in the high value range, where the projected and actual values of these locations diverge greatly.
+
+  At last, we need to apply the model to the data testing set
+```{r}
+rmse <- sqrt(mean((housing_tibble$.pred - housing_tibble$price)^2))
+print(paste("RMSE: ", rmse))
+```
+
+  After the calculation, we can know that that it is nearly $191155 away from the actual value.
+
+
+## Conclusion
+This marks the end of my project. The goal of my initiative was to benefit both real estate investors and the real estate industry. The research investigated the effects of several factors on pricing. The final conclusion is clear: living space has the greatest influence. In it, I constructed four separate prediction models. The random forest model performed well, but the KNN model performed poorly. This is clear from an RMSE perspective. However, from an error standpoint, all of my models have quite significant mistakes. This implies that even the top-performing random forest model has average predictive power. This means that I should study more complicated and strong prediction models.
+	
+Overall, this was my first experience working independently on a machine learning project. From screening the information to removing superfluous components to forming the final model, each step was an opportunity for learning for me. I also recognize that my expertise of machine learning is still quite limited at this point, and it is insufficient to enable me finish many sophisticated models. However, this is an excellent start for me, and this project has increased my interest in the topic of machine learning.
+
+
+
