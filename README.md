@@ -1,5 +1,5 @@
 # California-housing-price-machine-learning-project
-This report contains the analysis and report for PSTAT 131 final project.
+This report contains the analysis and report for PSTAT final project.
 ## Files
 - `Finalproject131.Rmd`: source R Markdown
 - `Finalproject131.html`: rendered HTML report
