@@ -1,2 +1,8 @@
-# California-Housing-Price-Machine-Learning-Project
-Housing has always been a pressing issue that needs to be addressed, but it is even more important to choose a home that better suits your budget and mental expectations. This project will build a model based on the different sizes of houses and the number of bedrooms and the presence or absence of a swimming pool as factors affecting the price.
+# California-housing-price-machine-learning-project
+This report contains the analysis and report for PSTAT 131 final project.
+## Files
+- `Finalproject131.Rmd`: source R Markdown
+- `Finalproject131.html`: rendered HTML report
+## Reproducibility
+R version: 4.3.2
+packages:knitr,tidyverse,corrr,ggplot2,tidymodels,knitr,kableExtra,corrplot,ggcorrplot,visdat,vip
